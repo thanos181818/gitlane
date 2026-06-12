@@ -92,7 +92,7 @@ npx expo install --check
 ```
 Then rebuild from Step 3.
 
-
+npx tsc --noEmit       - to check for errors
 # You're already in the right directory - no cd needed!
 
 # Install EAS CLI (correct package name)
