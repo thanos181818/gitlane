@@ -13,6 +13,7 @@ import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   ArrowLeft,
+  Check,
   CheckSquare,
   ChevronDown,
   ChevronRight,
@@ -33,6 +34,7 @@ import {
   Shield,
   Square,
   Trash2,
+  Pencil,
   X as XIcon,
 } from "lucide-react-native";
 import React, {
@@ -302,6 +304,8 @@ export default function RepositoryDetail() {
     setSelectedRepoId,
     switchBranch,
     createBranch,
+    deleteBranch,
+    renameBranch,
     stageFile,
     unstageFile,
     pushSelectedRepo,
@@ -331,6 +335,9 @@ export default function RepositoryDetail() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<GitFile | null>(
     null,
   );
+  const [showRenameBranch, setShowRenameBranch] = useState(false);
+  const [renameOldBranchName, setRenameOldBranchName] = useState("");
+  const [renameNewBranchName, setRenameNewBranchName] = useState("");
   const [isFileOpInProgress, setIsFileOpInProgress] = useState(false);
   const [showTreeSidebar, setShowTreeSidebar] = useState(false);
   const treeSidebarAnim = useRef(new Animated.Value(-Dimensions.get('window').width * 0.8)).current;
@@ -419,6 +426,44 @@ export default function RepositoryDetail() {
       showToast("error", msg);
     }
   }, [repo, newBranchName, createBranch, showToast]);
+
+  const handleDeleteBranch = useCallback((branchName: string) => {
+    if (!repo) return;
+    if (branchName === repo.currentBranch) {
+      showToast("error", "Cannot delete the active checkout branch.");
+      return;
+    }
+    Alert.alert(
+      "Delete Branch",
+      `Are you sure you want to delete branch "${branchName}"? This action cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteBranch(repo.id, branchName);
+            } catch (err: any) {
+              showToast("error", err?.message ?? "Failed to delete branch");
+            }
+          },
+        },
+      ]
+    );
+  }, [repo, deleteBranch, showToast]);
+
+  const handleRenameBranch = useCallback(async () => {
+    if (!repo || !renameNewBranchName.trim() || !renameOldBranchName) return;
+    try {
+      await renameBranch(repo.id, renameOldBranchName, renameNewBranchName.trim());
+      setShowRenameBranch(false);
+      setRenameOldBranchName("");
+      setRenameNewBranchName("");
+    } catch (err: any) {
+      showToast("error", err?.message ?? "Failed to rename branch");
+    }
+  }, [repo, renameOldBranchName, renameNewBranchName, renameBranch, showToast]);
 
   const handlePushToBranch = useCallback(
     (branchName: string) => {
@@ -667,33 +712,63 @@ export default function RepositoryDetail() {
       {showBranchSelector && (
         <View style={styles.branchDropdown}>
           {repo.branches.map((branch) => (
-            <TouchableOpacity
+            <View
               key={branch.name}
               style={[
                 styles.branchItem,
                 branch.isCurrent && styles.branchItemActive,
+                { justifyContent: 'space-between' }
               ]}
-              onPress={() => {
-                switchBranch(repo.id, branch.name);
-                setShowBranchSelector(false);
-              }}
             >
-              <GitBranch
-                size={14}
-                color={
-                  branch.isCurrent ? Colors.accentPrimary : Colors.textMuted
-                }
-              />
-              <Text
-                style={[
-                  styles.branchItemText,
-                  branch.isCurrent && styles.branchItemTextActive,
-                ]}
+              <TouchableOpacity
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                onPress={() => {
+                  switchBranch(repo.id, branch.name);
+                  setShowBranchSelector(false);
+                }}
               >
-                {branch.name}
-              </Text>
-              {branch.isCurrent && <Text style={styles.headLabel}>HEAD</Text>}
-            </TouchableOpacity>
+                <GitBranch
+                  size={14}
+                  color={
+                    branch.isCurrent ? Colors.accentPrimary : Colors.textMuted
+                  }
+                />
+                <Text
+                  style={[
+                    styles.branchItemText,
+                    branch.isCurrent && styles.branchItemTextActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {branch.name}
+                </Text>
+              </TouchableOpacity>
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                {branch.isCurrent ? (
+                  <Text style={styles.headLabel}>HEAD</Text>
+                ) : (
+                  <>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setRenameOldBranchName(branch.name);
+                        setRenameNewBranchName(branch.name);
+                        setShowRenameBranch(true);
+                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Pencil size={14} color={Colors.textMuted} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleDeleteBranch(branch.name)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Trash2 size={14} color={Colors.accentDanger} />
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            </View>
           ))}
           <TouchableOpacity
             style={styles.branchItem}
@@ -1001,6 +1076,57 @@ export default function RepositoryDetail() {
                 <Text style={styles.modalSaveText}>
                   {isFileOpInProgress ? "Deleting..." : "Delete"}
                 </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Rename Branch Modal */}
+      <Modal
+        visible={showRenameBranch}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowRenameBranch(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Rename Branch</Text>
+            <Text style={styles.modalSubtitle}>
+              Rename branch "{renameOldBranchName}" to:
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="new-branch-name"
+              placeholderTextColor={Colors.textMuted}
+              value={renameNewBranchName}
+              onChangeText={setRenameNewBranchName}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+              onSubmitEditing={handleRenameBranch}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => {
+                  setShowRenameBranch(false);
+                  setRenameOldBranchName("");
+                  setRenameNewBranchName("");
+                }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalSaveBtn,
+                  !renameNewBranchName.trim() && { opacity: 0.4 },
+                ]}
+                onPress={handleRenameBranch}
+                disabled={!renameNewBranchName.trim()}
+              >
+                <Check size={14} color="#fff" />
+                <Text style={styles.modalSaveText}>Rename</Text>
               </TouchableOpacity>
             </View>
           </View>

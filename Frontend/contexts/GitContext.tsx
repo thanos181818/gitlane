@@ -37,7 +37,7 @@ export const [GitProvider, useGit] = createContextHook(() => {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
-  const [conflicts, setConflicts] = useState<ConflictFile[]>(mockConflicts);
+  const [conflicts, setConflicts] = useState<ConflictFile[]>([]);
   const [mergeState, setMergeState] = useState<MergeState | null>(null);
   const [toastMessage, setToastMessage] = useState<{
     type: "success" | "error" | "warning" | "info";
@@ -49,6 +49,27 @@ export const [GitProvider, useGit] = createContextHook(() => {
     loaded: number;
     total: number;
   } | null>(null);
+
+  useEffect(() => {
+    if (!selectedRepoId) {
+      setMergeState(null);
+      setConflicts([]);
+      return;
+    }
+    gitEngine.restoreMergeState(selectedRepoId)
+      .then((state) => {
+        if (state) {
+          setMergeState(state);
+          setConflicts(state.conflicts);
+        } else {
+          setMergeState(null);
+          setConflicts([]);
+        }
+      })
+      .catch((err) => {
+        console.warn(TAG, "Failed to restore merge state", err);
+      });
+  }, [selectedRepoId]);
 
   const settingsQuery = useQuery({
     queryKey: ["settings"],
@@ -184,6 +205,24 @@ export const [GitProvider, useGit] = createContextHook(() => {
       await gitEngine.createBranch(repoId, name);
       queryClient.invalidateQueries({ queryKey: ["repositories"] });
       showToast("success", `Branch "${name}" created`);
+    },
+    [queryClient],
+  );
+
+  const deleteBranch = useCallback(
+    async (repoId: string, name: string) => {
+      await gitEngine.deleteBranch(repoId, name);
+      queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      showToast("warning", `Branch "${name}" deleted`);
+    },
+    [queryClient],
+  );
+
+  const renameBranch = useCallback(
+    async (repoId: string, oldName: string, newName: string) => {
+      await gitEngine.renameBranch(repoId, oldName, newName);
+      queryClient.invalidateQueries({ queryKey: ["repositories"] });
+      showToast("success", `Branch renamed to "${newName}"`);
     },
     [queryClient],
   );
@@ -734,6 +773,8 @@ export const [GitProvider, useGit] = createContextHook(() => {
     mergeInto,
     switchBranch,
     createBranch,
+    deleteBranch,
+    renameBranch,
     stageFile,
     unstageFile,
     createFile,

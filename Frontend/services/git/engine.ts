@@ -1637,6 +1637,69 @@ export class GitEngine {
     }
   }
 
+  async deleteBranch(repoId: string, branch: string) {
+    const dir = this.resolveRepoDir(repoId);
+    const txId = randomId();
+    await appendTx(dir, {
+      id: txId,
+      type: "branch",
+      status: "PENDING",
+      message: `delete ${branch}`,
+      startedAt: Date.now(),
+    });
+
+    try {
+      await git.deleteRef({
+        fs,
+        dir,
+        ref: `refs/heads/${branch}`,
+      });
+      await completeTx(dir, txId);
+      await deleteGitCache(dir);
+      console.log(TAG, `deleteBranch COMPLETED â†’ ${branch}`);
+    } catch (err) {
+      await failTx(dir, txId);
+      console.error(TAG, `deleteBranch FAILED â†’ ${branch}`, err);
+      throw err;
+    }
+  }
+
+  async renameBranch(repoId: string, oldName: string, newName: string) {
+    const dir = this.resolveRepoDir(repoId);
+    const txId = randomId();
+    await appendTx(dir, {
+      id: txId,
+      type: "branch",
+      status: "PENDING",
+      message: `rename ${oldName} to ${newName}`,
+      startedAt: Date.now(),
+    });
+
+    try {
+      const sha = await git.resolveRef({ fs, dir, ref: `refs/heads/${oldName}` });
+      await git.writeRef({
+        fs,
+        dir,
+        ref: `refs/heads/${newName}`,
+        value: sha,
+        force: true,
+      });
+      await git.deleteRef({
+        fs,
+        dir,
+        ref: `refs/heads/${oldName}`,
+      });
+      await completeTx(dir, txId);
+      await deleteGitCache(dir);
+      console.log(TAG, `renameBranch COMPLETED â†’ ${oldName} to ${newName}`);
+    } catch (err) {
+      await failTx(dir, txId);
+      console.error(TAG, `renameBranch FAILED`, err);
+      throw err;
+    }
+  }
+
+
   // â”€â”€ Merge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // ── Merge (conflict-aware) ───────────────────────────────────────────
 
@@ -2050,15 +2113,34 @@ export class GitEngine {
     } catch { return ''; }
   }
 
-  /**
-   * Check if a repo has a pending MERGE_IN_PROGRESS transaction.
-   */
   async getPendingMerge(repoId: string): Promise<TransactionEntry | null> {
     const dir = this.resolveRepoDir(repoId);
     const txList = await readTransactions(dir);
     return txList.find(
       (e) => e.status === 'PENDING' && e.message?.startsWith('MERGE_IN_PROGRESS')
     ) ?? null;
+  }
+
+  async restoreMergeState(repoId: string): Promise<MergeState | null> {
+    const dir = this.resolveRepoDir(repoId);
+    const pending = await this.getPendingMerge(repoId);
+    if (!pending || !pending.message) return null;
+
+    const match = pending.message.match(/MERGE_IN_PROGRESS:\s*([^\s]+)\s*<-\s*([^\s]+)/);
+    let ours = (await git.currentBranch({ fs, dir, fullname: false })) ?? "main";
+    let theirs = "origin/main";
+    if (match) {
+      ours = match[1];
+      theirs = match[2];
+    } else {
+      try {
+        const mergeHead = await fs.promises.readFile(joinPath(dir, '.git', 'MERGE_HEAD'), 'utf8');
+        theirs = String(mergeHead).trim();
+      } catch {}
+    }
+
+    const { mergeState } = await this.handleMergeConflicts(dir, repoId, ours, theirs, pending.id);
+    return mergeState;
   }
 
   /**

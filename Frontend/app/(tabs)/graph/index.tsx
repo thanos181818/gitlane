@@ -23,34 +23,102 @@ export default function GraphScreen() {
   const selectedRepo = repositories[0];
 
   const graphData = useMemo(() => {
-    const columns: Record<string, number> = {};
-    let nextCol = 0;
+    const commitMap = new Map<string, typeof commits[0]>();
+    commits.forEach(c => commitMap.set(c.sha, c));
 
-    return commits.map((commit, index) => {
-      let col = 0;
-      if (commit.branches.length > 0) {
-        const branch = commit.branches[0];
-        if (columns[branch] === undefined) {
-          columns[branch] = nextCol++;
+    const shaToColumn = new Map<string, number>();
+    const activeColumns: (string | null)[] = [];
+
+    const nodes = commits.map((commit, index) => {
+      const sha = commit.sha;
+
+      let col = activeColumns.indexOf(sha);
+      if (col === -1) {
+        col = activeColumns.indexOf(null);
+        if (col === -1) {
+          col = activeColumns.length;
+          activeColumns.push(sha);
+        } else {
+          activeColumns[col] = sha;
         }
-        col = columns[branch];
+      }
+
+      shaToColumn.set(sha, col);
+
+      if (commit.parents && commit.parents.length > 0) {
+        const primaryParent = commit.parents[0];
+        activeColumns[col] = primaryParent;
+
+        for (let pIdx = 1; pIdx < commit.parents.length; pIdx++) {
+          const parentSha = commit.parents[pIdx];
+          if (activeColumns.indexOf(parentSha) === -1) {
+            const freeSlot = activeColumns.indexOf(null);
+            if (freeSlot === -1) {
+              activeColumns.push(parentSha);
+            } else {
+              activeColumns[freeSlot] = parentSha;
+            }
+          }
+        }
       } else {
-        col = commit.isMerge ? 1 : 0;
+        activeColumns[col] = null;
       }
 
       return {
         commit,
+        sha,
         x: 30 + col * COLUMN_WIDTH,
         y: 40 + index * ROW_HEIGHT,
         col,
         color: getAuthorColor(commit.author),
-        isHead: commit.branches.includes('HEAD'),
-        isMerge: commit.isMerge,
+        isHead: commit.branches.includes('HEAD') || commit.branches.includes('main') || commit.branches.includes('master'),
+        isMerge: commit.isMerge || (commit.parents && commit.parents.length > 1),
       };
     });
+
+    const nodeMap = new Map<string, typeof nodes[0]>();
+    nodes.forEach(n => nodeMap.set(n.sha, n));
+
+    const edges: Array<{
+      id: string;
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      isMerge: boolean;
+    }> = [];
+
+    nodes.forEach(node => {
+      if (node.commit.parents) {
+        node.commit.parents.forEach((parentSha, pIdx) => {
+          const parentNode = nodeMap.get(parentSha);
+          if (parentNode) {
+            edges.push({
+              id: `edge-${node.sha}-${parentSha}`,
+              x1: node.x,
+              y1: node.y,
+              x2: parentNode.x,
+              y2: parentNode.y,
+              isMerge: pIdx > 0,
+            });
+          } else {
+            edges.push({
+              id: `edge-${node.sha}-truncated-${pIdx}`,
+              x1: node.x,
+              y1: node.y,
+              x2: node.x,
+              y2: node.y + ROW_HEIGHT,
+              isMerge: pIdx > 0,
+            });
+          }
+        });
+      }
+    });
+
+    return { nodes, edges };
   }, [commits]);
 
-  const svgHeight = graphData.length * ROW_HEIGHT + 80;
+  const svgHeight = graphData.nodes.length * ROW_HEIGHT + 80;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -69,26 +137,24 @@ export default function GraphScreen() {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.graphContainer}>
           <Svg width={120} height={svgHeight} style={styles.svg}>
-            {graphData.map((node, i) => {
-              if (i === graphData.length - 1) return null;
-              const next = graphData[i + 1];
-              return (
-                <Line
-                  key={`edge-${node.commit.sha}`}
-                  x1={node.x}
-                  y1={node.y}
-                  x2={next.x}
-                  y2={next.y}
-                  stroke={node.isMerge ? Colors.accentPurple : Colors.textMuted}
-                  strokeWidth={2}
-                  strokeDasharray={node.isMerge ? "6,3" : undefined}
-                  opacity={0.5}
-                />
-              );
-            })}
+            {/* Draw parent-child edges */}
+            {graphData.edges.map((edge) => (
+              <Line
+                key={edge.id}
+                x1={edge.x1}
+                y1={edge.y1}
+                x2={edge.x2}
+                y2={edge.y2}
+                stroke={edge.isMerge ? Colors.accentPurple : Colors.textMuted}
+                strokeWidth={2}
+                strokeDasharray={edge.isMerge ? '6,3' : undefined}
+                opacity={0.5}
+              />
+            ))}
 
-            {graphData.map((node) => (
-              <React.Fragment key={node.commit.sha}>
+            {/* Draw commit nodes */}
+            {graphData.nodes.map((node) => (
+              <React.Fragment key={node.sha}>
                 {node.isHead && (
                   <SvgCircle
                     cx={node.x}
@@ -125,15 +191,15 @@ export default function GraphScreen() {
           </Svg>
 
           <View style={styles.commitList}>
-            {graphData.map((node) => (
+            {graphData.nodes.map((node) => (
               <TouchableOpacity
-                key={node.commit.sha}
+                key={node.sha}
                 style={[
                   styles.commitRow,
-                  selectedSha === node.commit.sha && styles.commitRowSelected,
+                  selectedSha === node.sha && styles.commitRowSelected,
                 ]}
                 onPress={() => setSelectedSha(
-                  selectedSha === node.commit.sha ? null : node.commit.sha
+                  selectedSha === node.sha ? null : node.sha
                 )}
                 activeOpacity={0.7}
               >
@@ -151,7 +217,7 @@ export default function GraphScreen() {
                     <Text style={styles.commitTime}>{node.commit.date}</Text>
                   </View>
                   <View style={styles.commitTags}>
-                    {node.commit.branches.filter(b => b !== 'HEAD').map(branch => (
+                    {node.commit.branches.filter((b: string) => b !== 'HEAD').map((branch: string) => (
                       <View key={branch} style={styles.branchTag}>
                         <GitBranch size={10} color={Colors.accentPrimary} />
                         <Text style={styles.branchTagText}>{branch}</Text>
@@ -167,7 +233,7 @@ export default function GraphScreen() {
                   </View>
                 </View>
 
-                {selectedSha === node.commit.sha && (
+                {selectedSha === node.sha && (
                   <View style={styles.tooltip}>
                     <Text style={styles.tooltipTitle}>{node.commit.message}</Text>
                     <Text style={styles.tooltipMeta}>

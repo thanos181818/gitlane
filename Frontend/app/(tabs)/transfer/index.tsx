@@ -70,6 +70,7 @@ import {
   startSenderSession,
   joinReceiverSession,
   extractToken,
+  applyPatch,
 } from '@/services/p2p/p2pService';
 import type {
   PatchPayload,
@@ -436,9 +437,17 @@ export default function TransferScreen() {
 
   // ─── Accept / Reject ─────────────────────────────────────────────────────────
 
-  const handleAccept = () => {
+  const handleAccept = async () => {
     haptic(Haptics.ImpactFeedbackStyle.Light);
-    setReceiveStep('accepted');
+    if (!importedPayload) return;
+
+    try {
+      // Apply patch to a new repo
+      await applyPatch(importedPayload);
+      setReceiveStep('accepted');
+    } catch (err: any) {
+      Alert.alert('Failed to Apply Patch', err?.message ?? 'Could not import changes');
+    }
   };
 
   const handleReject = () => {

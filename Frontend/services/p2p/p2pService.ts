@@ -662,6 +662,75 @@ export function joinReceiverSession(token: string, callbacks: ReceiverCallbacks)
   };
 }
 
+// ─── Section 5: Apply Patch to Git Repo ───────────────────────────────────────
+
+export async function applyPatch(payload: PatchPayload, repoId?: string): Promise<string> {
+  console.log('[P2P] applyPatch called —', payload.repoName, payload.diffFiles.length, 'files');
+
+  // If repoId not provided, create a new repo
+  let targetRepoId: string;
+  if (!repoId) {
+    console.log('[P2P] Creating new repo:', payload.repoName);
+    const newRepo = await gitEngine.createRepository(payload.repoName, false);
+    targetRepoId = newRepo.id;
+  } else {
+    targetRepoId = repoId;
+  }
+
+  // Apply each diff file
+  for (const file of payload.diffFiles) {
+    console.log('[P2P] Applying file:', file.filepath, 'changeType:', file.changeType);
+    try {
+      if (file.changeType === 'D') {
+        // Delete file
+        await gitEngine.deleteFile(targetRepoId, file.filepath);
+      } else {
+        // Build the final content by resolving hunks (take all 'added' lines or keep 'context' lines)
+        let finalContent = '';
+        for (const hunk of file.hunks) {
+          for (const line of hunk.lines) {
+            if (line.type === 'added') {
+              finalContent += line.content.slice(1) + '\n'; // remove the '+' prefix
+            } else if (line.type === 'context') {
+              finalContent += line.content.slice(1) + '\n'; // remove the ' ' prefix
+            } else if (line.type === 'removed') {
+              // skip removed lines
+            }
+          }
+        }
+
+        // If no hunks (binary file or empty), just create empty
+        if (finalContent === '' && file.changeType === 'A') {
+          finalContent = '';
+        }
+
+        // Remove trailing newline
+        if (finalContent.endsWith('\n')) {
+          finalContent = finalContent.slice(0, -1);
+        }
+
+        // Write to git
+        await gitEngine.createFile(targetRepoId, file.filepath, finalContent);
+      }
+    } catch (err: any) {
+      console.warn('[P2P] Failed to apply file', file.filepath, ':', err?.message ?? err);
+    }
+  }
+
+  // Create a commit for the imported patch
+  console.log('[P2P] Creating commit for applied patch');
+  const authorName = payload.senderName;
+  const authorEmail = 'imported@gitle.app';
+  await gitEngine.commit(
+    targetRepoId,
+    `Imported patch from ${payload.senderName}`,
+    { name: authorName, email: authorEmail }
+  );
+
+  console.log('[P2P] ✅ Patch applied successfully');
+  return targetRepoId;
+}
+
 export function extractToken(raw: string): string | null {
   if (raw.startsWith(DEEP_LINK_SCHEME)) return raw.slice(DEEP_LINK_SCHEME.length).trim();
   if (/^[A-Z2-9]{8}$/.test(raw.trim())) return raw.trim();
