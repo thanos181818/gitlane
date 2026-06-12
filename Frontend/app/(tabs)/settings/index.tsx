@@ -132,13 +132,13 @@ export default function SettingsScreen() {
           <SettingsRow
             icon={<User size={18} color={Colors.accentPrimary} />}
             title="User Name"
-            value={settings.userConfig.name}
+            value={settings.userConfig.name ? settings.userConfig.name : "Not set"}
             onPress={() => openEdit("name")}
           />
           <SettingsRow
             icon={<Mail size={18} color={Colors.accentPrimary} />}
             title="Email Address"
-            value={settings.userConfig.email}
+            value={settings.userConfig.email ? settings.userConfig.email : "Not set"}
             onPress={() => openEdit("email")}
             isLast
           />

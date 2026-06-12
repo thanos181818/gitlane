@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const TAG = "[GitContext]";
 
 const defaultSettings: AppSettings = {
-  userConfig: { name: "Rachit Chheda", email: "rachit.chheda24@spit.ac.in" },
+  userConfig: { name: "", email: "" },
   notifications: {
     commitSuccess: true,
     commitFailed: true,
@@ -322,6 +322,13 @@ export const [GitProvider, useGit] = createContextHook(() => {
   const commitChanges = useCallback(
     async (message: string) => {
       if (!selectedRepo) return;
+      
+      // Validate name and email are set
+      if (!settings.userConfig.name || !settings.userConfig.email) {
+        showToast("warning", "Please set your name and email in Settings first!");
+        return;
+      }
+      
       const author = {
         name: settings.userConfig.name,
         email: settings.userConfig.email,

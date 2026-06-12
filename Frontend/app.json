@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "GitLane: Offline Git Client",
-    "slug": "gitlane-offline-git-client",
+    "name": "GitLane",
+    "slug": "gitlane",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "rork-app",
+    "scheme": "gitlane",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,14 +15,14 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.gitlane-offline-git-client"
+      "bundleIdentifier": "app.gitlane"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "app.rork.gitlane_offline_git_client"
+      "package": "app.gitlane"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -31,7 +31,7 @@
       [
         "expo-router",
         {
-          "origin": "https://rork.com/"
+          "origin": "https://gitlane.app/"
         }
       ],
       "expo-font",
@@ -42,7 +42,7 @@
     },
     "extra": {
       "router": {
-        "origin": "https://rork.com/"
+        "origin": "https://gitlane.app/"
       },
       "eas": {
         "projectId": "ce2937bb-87fb-4e8b-9a99-f0c48aba3d5f"
